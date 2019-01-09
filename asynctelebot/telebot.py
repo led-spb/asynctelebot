@@ -7,42 +7,55 @@ from tornado import gen
 from uuid import uuid4
 from functools import partial
 from datetime import timedelta
+import inspect
 
 
-class BasicMessageHandler(object):
-    def __init__(self, authorized=False):
+class MessageHandler(object):
+    def __init__(self, message_type='text', authorized=False):
         self.authorized = authorized
+        self.message_type = message_type
         self.admins = None
 
     def pre_process(self, message):
+        if self.message_type not in message:
+            return False
         if not self.authorized:
             return True
-        if message['from']['id'] in self.admins:
+        if self.admins is not None and message['from'].get('id') in self.admins:
             return True
 
-        logging.warn('User %d is not authorized', message['from']['id'])
+        logging.warn('User "%d/%s" is not authorized', message['from'].get('id'), message['from'].get('first_name'))
         return False
 
     def __call__(self, func):
         def wrapped(this, message):
             self.admins = this.bot.admins if this.bot is not None else []
             if self.pre_process(message):
-                return func(this, message)
+                arguments = []
+                for arg in inspect.getargspec(func).args:
+                    if arg == 'self':
+                        arguments.append(this)
+                    elif arg == 'message':
+                        arguments.append(message)
+                    elif arg in message:
+                        arguments.append(message[arg])
+                    else:
+                        arguments.append(None)
+
+                return func(*arguments)
             else:
                 return False
         wrapped.is_handler = True
         return wrapped
 
 
-class TextMessageHandler(BasicMessageHandler):
+class PatternMessageHandler(MessageHandler):
     def __init__(self, pattern, authorized=False):
-        BasicMessageHandler.__init__(self, authorized)
+        MessageHandler.__init__(self, 'text', authorized)
         self.pattern = re.compile(pattern)
 
     def pre_process(self, message):
-        if not BasicMessageHandler.pre_process(self, message):
-            return False
-        if 'text' not in message:
+        if not MessageHandler.pre_process(self, message):
             return False
         if self.pattern.match(message['text']) is not None:
             return True
@@ -109,8 +122,8 @@ class Bot(object):
         for handler in self.handlers:
             for cmd_handler in handler.commands:
                 if cmd_handler.__call__(message):
-                    return
-        pass
+                    return True
+        return False
 
     def process_updates(self, updates):
         for update in updates:
