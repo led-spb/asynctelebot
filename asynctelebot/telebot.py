@@ -1,45 +1,75 @@
 import json
+import re
 import logging
 from tornado.httpclient import AsyncHTTPClient, HTTPRequest
-from tornado.ioloop import IOLoop, PeriodicCallback
+from tornado.ioloop import IOLoop
 from tornado import gen
 from uuid import uuid4
 from functools import partial
 from datetime import timedelta
 
-def authorized(func):
-    def wrapped(self, message):
-        admins = self.bot.admins
-        if message is None or message['from']['id'] in admins:
-            return func(self, message)
-        else:
-            self.bot.logger.warn(
-                "User %d/%s %s is unauthorized",
-                message['from']['id'], 
-                message['from']['first_name'],
-                message['from']['last_name']
-            )
-    return wrapped
+
+class BasicMessageHandler(object):
+    def __init__(self, authorized=False):
+        self.authorized = authorized
+        self.admins = None
+
+    def pre_process(self, message):
+        if not self.authorized:
+            return True
+        if message['from']['id'] in self.admins:
+            return True
+
+        logging.warn('User %d is not authorized', message['from']['id'])
+        return False
+
+    def __call__(self, func):
+        def wrapped(this, message):
+            self.admins = this.bot.admins if this.bot is not None else []
+            if self.pre_process(message):
+                return func(this, message)
+            else:
+                return False
+        wrapped.is_handler = True
+        return wrapped
+
+
+class TextMessageHandler(BasicMessageHandler):
+    def __init__(self, pattern, authorized=False):
+        BasicMessageHandler.__init__(self, authorized)
+        self.pattern = re.compile(pattern)
+
+    def pre_process(self, message):
+        if not BasicMessageHandler.pre_process(self, message):
+            return False
+        if 'text' not in message:
+            return False
+        if self.pattern.match(message['text']) is not None:
+            return True
+        return False
 
 
 class BotRequestHandler:
+    def __init__(self):
+        self.bot = None
+        self._commands = None
+
+    @property
     def commands(self):
-        return ['/'+x[4:] for x in dir(self) if x.find('cmd_') == 0]
+        if self._commands is not None:
+            return self._commands
+        self._commands = []
+        for func_name in dir(self):
+            func = getattr(self, func_name)
+            if callable(func) and hasattr(func, 'is_handler'):
+                self._commands.append(func)
+        return self._commands
 
-    def getCommand(self, name):
-        if name.find('/') == 0 and hasattr(self, "cmd_"+name[1:]):
-            return getattr(self, "cmd_"+name[1:])
-        else:
-            return self.defaultCommand()
-
-    def defaultCommand(self):
-        return None
-
-    def assignTo(self, bot):
+    def assign_to(self, bot):
         self.bot = bot
 
 
-class Bot():
+class Bot(object):
 
     def __init__(self, token, admins=None, handler=None, logger=None, proxy=None, ioloop=None):
         self.logger = logger or logging.getLogger(self.__class__.__name__)
@@ -51,50 +81,42 @@ class Bot():
         self.baseUrl = 'https://api.telegram.org/bot%s' % self.token
         self.handlers = []
         if handler is not None:
-            self.addHandler(handler)
+            self.add_handler(handler)
 
         self.ioloop = ioloop or IOLoop.current()
         self._client = AsyncHTTPClient()
         self.params = {'timeout': 60, 'offset': 0, 'limit': 5}
 
-
-    def addHandler(self, handler):
+    def add_handler(self, handler):
         if handler is not None:
-            handler.assignTo(self)
+            handler.assign_to(self)
             self.handlers.append(handler)
         pass
 
     def request_loop(self):
         request = HTTPRequest(
-            url = self.baseUrl+'/getUpdates',
-            method = 'POST',
-            headers = { "Content-Type": "application/json" },
-            body = json.dumps( self.params ),
-            request_timeout = self.params['timeout']+5
+            url=self.baseUrl+'/getUpdates',
+            method='POST',
+            headers={"Content-Type": "application/json"},
+            body=json.dumps(self.params),
+            request_timeout=self.params['timeout']+5
         )
-        self._client.fetch( request, callback = self._on_updates_ready, raise_error = False )
+        self._client.fetch(request, callback=self._on_updates_ready, raise_error=False)
         return
 
     def exec_command(self, message):
-        self.logger.debug( json.dumps(message, indent=2) )
-        if 'text' in message:
-             params = message['text'].lower().split()
-             command = params[0]
-             self.logger.info('Processing command %s (%s)', command, ", ".join(params[1:]) )
-
-             for handler in self.handlers:
-                 functor = handler.getCommand(command)
-                 if functor is not None:
-                     functor.__call__( message )
-        else:
-             raise Exception('Only text messages supported')
+        self.logger.debug(json.dumps(message, indent=2))
+        for handler in self.handlers:
+            for cmd_handler in handler.commands:
+                if cmd_handler.__call__(message):
+                    return
         pass
 
     def process_updates(self, updates):
         for update in updates:
             if 'callback_query' in update:
                 callback = update['callback_query']
-                self.process_callback( callback )
+                self.process_callback(callback)
 
                 message = callback['message']
                 message['from'] = callback['from']
@@ -107,23 +129,23 @@ class Bot():
                     user = message['from']
                     message_type = "unknown"
                     if "text" in message:
-                       message_type = message["text"]
+                        message_type = message["text"]
                     if "contact" in message:
-                       message_type = "contact"
+                        message_type = "contact"
                     if "location" in message:
-                       message_type = "location"
+                        message_type = "location"
                     if "document" in message:
-                       message_type = "document"
+                        message_type = "document"
 
                     self.logger.info(
-                         "request \"%s\" from %d/%s",
-                         message_type,
-                         message['from']['id'],
-                         message['from']['first_name']
+                        "request \"%s\" from %d/%s",
+                        message_type,
+                        message['from'].get('id'),
+                        message['from'].get('first_name')
                     )
                     try:
-                        self.exec_command( message )
-                    except:
+                        self.exec_command(message)
+                    except Exception:
                         logging.exception('Error while processing request')
             self.params['offset'] = update['update_id']+1
         return
@@ -144,31 +166,25 @@ class Bot():
             self.logger.debug('updates:')
             self.logger.debug(json.dumps(result, indent=2))
             if result['ok']:
-               updates = result['result']
-               try:
-                  self.process_updates(updates)
-               except:
-                  self.logger.exception(
-                      'Error while processing updates'
-                  )
+                updates = result['result']
+                try:
+                    self.process_updates(updates)
+                except Exception:
+                    self.logger.exception('Error while processing updates')
             else:
-               self.logger.error(
-                    'Error while recieve updates from server'
-               )
-               self.logger.error(result)
+                self.logger.error('Error while receive updates from server')
+                self.logger.error(result)
 
             self.loop_start()
-        except:
-            self.logger.exception(
-                    'Error while recieve updates from server'
-            )
+        except Exception:
+            self.logger.exception('Error while receive updates from server')
             self.loop_start(10)
             pass
 
-    def _on_message_cb( self, response ):
+    def _on_message_cb(self, response):
         try:
             response.rethrow()
-        except:
+        except Exception:
             self.logger.exception("Error while sending message")
         pass
 
@@ -184,9 +200,9 @@ class Bot():
 
         for key, value in body.iteritems():
             buf = ( 
-                   ( b'--%s\r\n' % (boundary_bytes,)) 
-                   + ( b'Content-Disposition: form-data; name="%s"\r\n' % key.encode() )
-                   + ( b'\r\n%s\r\n' % str(value).encode() )
+                   (b'--%s\r\n' % (boundary_bytes,))
+                   + (b'Content-Disposition: form-data; name="%s"\r\n' % key.encode())
+                   + (b'\r\n%s\r\n' % str(value).encode())
               )
             yield write(buf)
 
@@ -197,13 +213,11 @@ class Bot():
             self.logger.debug("FILE: %s: %s %s", key, filename, mtype)
 
             buf = (
-                  (b"--%s\r\n" % boundary_bytes)
-                  + (
-                      b'Content-Disposition: form-data; name="%s"; filename="%s"\r\n'
-                       % (key.encode(), filename.encode())
-                    )
-                  + (b"Content-Type: %s\r\n" % mtype.encode())
-                  + b"\r\n"
+                    (b"--%s\r\n" % boundary_bytes) +
+                    (b'Content-Disposition: form-data; name="%s"; filename="%s"\r\n'
+                     % (key.encode(), filename.encode())) +
+                    (b"Content-Type: %s\r\n" % mtype.encode()) +
+                    b"\r\n"
             )
             yield write(buf)
 
@@ -217,26 +231,26 @@ class Bot():
         yield write(b"--%s--\r\n" % (boundary_bytes,))
         pass
 
-    def send_request( self, url, method='GET', body=None, files={}, timeout=15, callback=None ):
+    def send_request(self, url, method='GET', body=None, files=None, timeout=15, callback=None):
         client = AsyncHTTPClient()
-        if len(files)==0:
-            request = HTTPRequest( url, 
-                headers = { "Content-Type": "application/json" },
-                method = 'POST', body = json.dumps(body)
+        if files is None or len(files) == 0:
+            request = HTTPRequest(
+                url, headers={"Content-Type": "application/json"},
+                method='POST', body = json.dumps(body)
             )
         else:
             boundary = uuid4().hex
-            request = HTTPRequest( url, 
-                headers = {"Content-Type": "multipart/form-data; boundary=%s" % boundary},
-                method = 'POST', 
-                body_producer = partial( 
+            request = HTTPRequest(
+                url, headers={"Content-Type": "multipart/form-data; boundary=%s" % boundary},
+                method='POST',
+                body_producer=partial(
                     self.multipart_producer,
                     boundary, body, files
                 )
             )
-        return client.fetch( request, callback=callback or self._on_message_cb, raise_error = False )
+        return client.fetch(request, callback=callback or self._on_message_cb, raise_error=False)
 
-    def edit_message( self, to, message_id, text, markup=None, extra=None, callback=None ):
+    def edit_message(self, to, message_id, text, markup=None, extra=None, callback=None):
         params = {'chat_id': to, 'message_id': message_id, 'text': text}
         if markup is not None:
             params['reply_markup'] = json.dumps(markup)
@@ -246,15 +260,13 @@ class Bot():
 
         return self.send_request( 
                    self.baseUrl + '/editMessageText',
-                   method = 'POST', body=params, 
-                   timeout=10, 
-                   callback=callback
+                   method='POST', body=params, timeout=10, callback=callback
         )
 
     def send_message(
             self, to, text=None, photo=None, video=None,
             audio=None, voice=None, document=None, markup=None, 
-	    latitude=None, longitude=None, reply_to_id=None, extra=None, callback=None):
+            latitude=None, longitude=None, reply_to_id=None, extra=None, callback=None):
         params = {'chat_id': to}
         files = {}
 
@@ -275,7 +287,7 @@ class Bot():
             files['document'] = document
         elif latitude is not None:
             method = 'Location'
-            params['latitude']  = latitude
+            params['latitude'] = latitude
             params['longitude'] = longitude
         else:
             method = 'Message'
@@ -290,7 +302,8 @@ class Bot():
             for key, val in extra.iteritems():
                 params[key] = val
 
-        return self.send_request( self.baseUrl + '/send%s' % (method),
-               method = 'POST', body=params, files=files, timeout=10, callback=callback
+        return self.send_request(
+            self.baseUrl + '/send%s' % method,
+            method='POST', body=params, files=files, timeout=10, callback=callback
         )
         pass
