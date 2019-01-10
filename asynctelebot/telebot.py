@@ -1,7 +1,7 @@
 import json
 import re
 import logging
-from tornado.httpclient import AsyncHTTPClient, HTTPRequest
+from tornado.httpclient import AsyncHTTPClient, HTTPRequest, HTTPError
 from tornado.ioloop import IOLoop
 from tornado import gen
 from uuid import uuid4
@@ -118,19 +118,11 @@ class Bot(object):
         self._client.fetch(request, callback=self._on_updates_ready, raise_error=False)
         return
 
-    def exec_command(self, message):
-        self.logger.debug(json.dumps(message, indent=2))
-        for handler in self.handlers:
-            for cmd_handler in handler.commands:
-                if cmd_handler.__call__(message):
-                    return True
-        return False
-
     def process_updates(self, updates):
         for update in updates:
             if 'callback_query' in update:
                 callback = update['callback_query']
-                self.process_callback(callback)
+                self.exec_callback(callback)
 
                 message = callback['message']
                 message['from'] = callback['from']
@@ -158,7 +150,15 @@ class Bot(object):
             self.params['offset'] = update['update_id']+1
         return
 
-    def process_callback(self, callback):
+    def exec_command(self, message):
+        self.logger.debug(json.dumps(message, indent=2))
+        for handler in self.handlers:
+            for cmd_handler in handler.commands:
+                if cmd_handler.__call__(message):
+                    return True
+        return False
+
+    def exec_callback(self, callback):
         url = self.baseUrl + '/answerCallbackQuery?callback_query_id=%s' % callback['id']
         return self._client.fetch(url, raise_error=False)
 
@@ -171,16 +171,13 @@ class Bot(object):
             self.logger.debug(json.dumps(result, indent=2))
             if result['ok']:
                 updates = result['result']
-                try:
-                    self.process_updates(updates)
-                except Exception:
-                    self.logger.exception('Error while processing updates')
+                self.process_updates(updates)
             else:
                 self.logger.error('Error while receive updates from server')
                 self.logger.error(result)
 
             self.loop_start()
-        except Exception:
+        except (HTTPError, ValueError):
             self.logger.exception('Error while receive updates from server')
             self.loop_start(10)
             pass
@@ -188,12 +185,12 @@ class Bot(object):
     def _on_message_cb(self, response):
         try:
             response.rethrow()
-        except Exception:
+        except HTTPError:
             self.logger.exception("Error while sending message")
         pass
 
     def loop_start(self, delay=0):
-        if delay>0:
+        if delay > 0:
             self.ioloop.add_timeout(timedelta(seconds=15), self.request_loop)
         else:
             self.ioloop.add_callback(self.request_loop)
@@ -253,7 +250,7 @@ class Bot(object):
             )
         return self._client.fetch(request, callback=callback or self._on_message_cb, raise_error=False)
 
-    def edit_message_text(self, to, message_id, text, callback=None, reply_markup=None, **extra ):
+    def edit_message_text(self, to, message_id, text, callback=None, reply_markup=None, **extra):
         if len(text) > 4096:
             raise ValueError('Text message can\'t longer than 4096')
 
