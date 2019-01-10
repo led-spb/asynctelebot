@@ -2,6 +2,8 @@ import collections
 
 
 class Entity(object):
+    __slots__ = ()
+
     def __init__(self, **kwargs):
         for attr in self.__slots__:
             if attr in kwargs:
@@ -19,38 +21,36 @@ File = collections.namedtuple('File', ['name', 'data', 'mime'])
 
 
 class Photo(Entity):
-    __slots__ = ['photo', 'caption']
+    __slots__ = ('photo', 'caption')
 
 
 class Audio(Entity):
-    __slots__ = ['audio', 'caption', 'duration', 'performer', 'title']
+    __slots__ = ('audio', 'caption', 'duration', 'performer', 'title')
 
 
 class Document(Entity):
-    __slots__ = ['document', 'caption']
-    __files__ = ['document']
+    __slots__ = ('document', 'caption')
 
 
 class Sticker(Entity):
-    __slots__ = ['sticker']
+    __slots__ = ('sticker',)
 
 
 class Video(Entity):
-    __slots__ = ['video', 'duration', 'width', 'height', 'caption']
-    __files__ = ['video']
+    __slots__ = ('video', 'duration', 'width', 'height', 'caption')
 
 
 class Voice(Entity):
-    __slots__ = ['voice', 'caption', 'duration']
+    __slots__ = ('voice', 'caption', 'duration')
 
 
 class Location(Entity):
-    __slots__ = ['latitude', 'longitude']
+    __slots__ = ('latitude', 'longitude')
 
 
 class Venue(Entity):
-    __slots__ = ['latitude', 'longitude', 'title', 'address', 'foursquare_id']
+    __slots__ = ('latitude', 'longitude', 'title', 'address', 'foursquare_id')
 
 
 class Contact(Entity):
-    __slots__ = ['phone_number', 'first_name', 'last_name']
+    __slots__ = ('phone_number', 'first_name', 'last_name')
