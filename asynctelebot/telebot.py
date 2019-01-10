@@ -7,6 +7,7 @@ from tornado import gen
 from uuid import uuid4
 from functools import partial
 from datetime import timedelta
+from entity import Entity, File
 import inspect
 
 
@@ -140,22 +141,16 @@ class Bot(object):
                 message = update['message']
                 if 'from' in message:
                     user = message['from']
-                    message_type = "unknown"
-                    if "text" in message:
-                        message_type = message["text"]
-                    if "contact" in message:
-                        message_type = "contact"
-                    if "location" in message:
-                        message_type = "location"
-                    if "document" in message:
-                        message_type = "document"
 
-                    self.logger.info(
-                        "request \"%s\" from %d/%s",
-                        message_type,
-                        message['from'].get('id'),
-                        message['from'].get('first_name')
-                    )
+                    message_type = list(
+                        set(message.keys())
+                        & {"text", "audio", "document", "photo", "sticker", "video", "voice", "contact", "location",
+                           "venue", "game"})
+                    message_type = message_type[0] if len(message_type) > 0 else "unknown"
+                    if message_type == "text":
+                        message_type = message["text"]
+
+                    self.logger.info("message \"%s\" from %d/%s", message_type, user.get('id'), user.get('first_name'))
                     try:
                         self.exec_command(message)
                     except Exception:
@@ -245,11 +240,10 @@ class Bot(object):
         pass
 
     def send_request(self, url, method='GET', body=None, files=None, timeout=15, callback=None):
-        client = AsyncHTTPClient()
         if files is None or len(files) == 0:
             request = HTTPRequest(
                 url, headers={"Content-Type": "application/json"},
-                method='POST', body = json.dumps(body)
+                method='POST', body=json.dumps(body)
             )
         else:
             boundary = uuid4().hex
@@ -261,7 +255,7 @@ class Bot(object):
                     boundary, body, files
                 )
             )
-        return client.fetch(request, callback=callback or self._on_message_cb, raise_error=False)
+        return self._client.fetch(request, callback=callback or self._on_message_cb, raise_error=False)
 
     def edit_message(self, to, message_id, text, markup=None, extra=None, callback=None):
         params = {'chat_id': to, 'message_id': message_id, 'text': text}
@@ -276,44 +270,30 @@ class Bot(object):
                    method='POST', body=params, timeout=10, callback=callback
         )
 
-    def send_message(
-            self, to, text=None, photo=None, video=None,
-            audio=None, voice=None, document=None, markup=None, 
-            latitude=None, longitude=None, reply_to_id=None, extra=None, callback=None):
+    def send_message(self, to, message, callback=None, reply_markup=None, **extra):
         params = {'chat_id': to}
         files = {}
 
-        if photo is not None:
-            method = 'Photo'
-            files['photo'] = photo
-        elif voice is not None:
-            method = 'Voice'
-            files['voice'] = voice
-        elif audio is not None:
-            method = 'Audio'
-            files['audio'] = audio
-        elif video is not None:
-            method = 'Video'
-            files['video'] = video
-        elif document is not None:
-            method = 'Document'
-            files['document'] = document
-        elif latitude is not None:
-            method = 'Location'
-            params['latitude'] = latitude
-            params['longitude'] = longitude
-        else:
+        if isinstance(message, Entity):
+            method = message.__class__.__name__
+            for key, value in message.to_dict().iteritems():
+                if isinstance(value, File):
+                    files[key] = list(value)
+                else:
+                    params[key] = value
+        elif isinstance(message, str):
+            if len(message) > 4096:
+                raise ValueError('Text message can\'t longer than 4096')
             method = 'Message'
-            params['text'] = text
+            params['text'] = message
 
-        if markup is not None:
-            params['reply_markup'] = json.dumps(markup)
-        if reply_to_id is not None:
-            params['reply_to_message_id'] = reply_to_id
+        if reply_markup is not None:
+            params['reply_markup'] = json.dumps(reply_markup)
+        #if reply_to_id is not None:
+        #    params['reply_to_message_id'] = reply_to_id
 
         if extra is not None:
-            for key, val in extra.iteritems():
-                params[key] = val
+            params.update(extra)
 
         return self.send_request(
             self.baseUrl + '/send%s' % method,
