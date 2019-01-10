@@ -159,12 +159,8 @@ class Bot(object):
         return
 
     def process_callback(self, callback):
-        client = AsyncHTTPClient()
-        request = HTTPRequest(
-            self.baseUrl + '/answerCallbackQuery?callback_query_id=%s' % callback['id']
-        )
-        return client.fetch(request, raise_error=False)
-        pass
+        url = self.baseUrl + '/answerCallbackQuery?callback_query_id=%s' % callback['id']
+        return self._client.fetch(url, raise_error=False)
 
     def _on_updates_ready(self, response):
         try:
@@ -203,7 +199,7 @@ class Bot(object):
             self.ioloop.add_callback(self.request_loop)
 
     @gen.coroutine
-    def multipart_producer( self, boundary, body, files, write ):
+    def multipart_producer(self, boundary, body, files, write):
         boundary_bytes = boundary.encode()
 
         for key, value in body.iteritems():
@@ -217,14 +213,14 @@ class Bot(object):
         for key, value in files.iteritems():
             filename = value[0]
             f = value[1]
-            mtype = value[2]
-            self.logger.debug("FILE: %s: %s %s", key, filename, mtype)
+            mime_type = value[2]
+            self.logger.debug("FILE: %s: %s %s", key, filename, mime_type)
 
             buf = (
                     (b"--%s\r\n" % boundary_bytes) +
                     (b'Content-Disposition: form-data; name="%s"; filename="%s"\r\n'
                      % (key.encode(), filename.encode())) +
-                    (b"Content-Type: %s\r\n" % mtype.encode()) +
+                    (b"Content-Type: %s\r\n" % mime_type.encode()) +
                     b"\r\n"
             )
             yield write(buf)
