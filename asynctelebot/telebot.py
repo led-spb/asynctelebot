@@ -239,7 +239,7 @@ class Bot(object):
         yield write(b"--%s--\r\n" % (boundary_bytes,))
         pass
 
-    def send_request(self, url, method='GET', body=None, files=None, timeout=15, callback=None):
+    def send_request(self, url, body=None, files=None, timeout=None, callback=None):
         if files is None or len(files) == 0:
             request = HTTPRequest(
                 url, headers={"Content-Type": "application/json"},
@@ -257,18 +257,17 @@ class Bot(object):
             )
         return self._client.fetch(request, callback=callback or self._on_message_cb, raise_error=False)
 
-    def edit_message(self, to, message_id, text, markup=None, extra=None, callback=None):
-        params = {'chat_id': to, 'message_id': message_id, 'text': text}
-        if markup is not None:
-            params['reply_markup'] = json.dumps(markup)
-        if extra is not None:
-            for key, val in extra.iteritems():
-                params[key] = val
+    def edit_message_text(self, to, message_id, text, callback=None, reply_markup=None, **extra ):
+        if len(text) > 4096:
+            raise ValueError('Text message can\'t longer than 4096')
 
-        return self.send_request( 
-                   self.baseUrl + '/editMessageText',
-                   method='POST', body=params, timeout=10, callback=callback
-        )
+        params = {'chat_id': to, 'message_id': message_id, 'text': text}
+        if reply_markup is not None:
+            params['reply_markup'] = json.dumps(reply_markup)
+        if extra is not None:
+            params.update(extra)
+
+        return self.send_request(self.baseUrl + '/editMessageText', body=params, callback=callback)
 
     def send_message(self, to, message, callback=None, reply_markup=None, **extra):
         params = {'chat_id': to}
@@ -281,22 +280,17 @@ class Bot(object):
                     files[key] = list(value)
                 else:
                     params[key] = value
-        elif isinstance(message, str):
+        elif isinstance(message, str) or isinstance(message, unicode):
             if len(message) > 4096:
                 raise ValueError('Text message can\'t longer than 4096')
             method = 'Message'
             params['text'] = message
+        else:
+            raise ValueError('message parameter must be str or Entity type, got "%s"', type(message))
 
         if reply_markup is not None:
             params['reply_markup'] = json.dumps(reply_markup)
-        #if reply_to_id is not None:
-        #    params['reply_to_message_id'] = reply_to_id
-
         if extra is not None:
             params.update(extra)
 
-        return self.send_request(
-            self.baseUrl + '/send%s' % method,
-            method='POST', body=params, files=files, timeout=10, callback=callback
-        )
-        pass
+        return self.send_request(self.baseUrl + '/send%s' % method, body=params, files=files, callback=callback)
