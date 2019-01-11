@@ -1,23 +1,15 @@
 #!/usr/bin/python
-
 import setuptools
-                  
+import pkg_resources
+import pytelegram_async as module
 
 setuptools.setup(
-    name="asynctelebot",
-    version="0.0.1",
+    name=module.name,
+    version=pkg_resources.parse_version(module.version).public,
     author="Alexey Ponimash",
     author_email="alexey.ponimash@gmail.com",
     description="Async telegram bot framework",
-    long_description="",
-    long_description_content_type="text/markdown",
-    url="https://github.com/led-spb/asynctelebot",
-    packages=setuptools.find_packages(),
-    classifiers=[
-        "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: MIT License",
-        "Operating System :: OS Independent",
-    ],
+    packages=setuptools.find_packages(exclude=["tests"]),
     install_requires=[
        'tornado',
     ]
