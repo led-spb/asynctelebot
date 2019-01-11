@@ -1,4 +1,4 @@
-from asynctelebot.telebot import Bot, BotRequestHandler, PatternMessageHandler, MessageHandler
+from pytelegram_async.bot import Bot, BotRequestHandler, PatternMessageHandler, MessageHandler
 import pytest
 
 
