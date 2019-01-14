@@ -1,7 +1,6 @@
 from pytelegram_async.bot import Bot, BotRequestHandler, PatternMessageHandler, MessageHandler
 import pytest
 
-
 class DummyHandler(BotRequestHandler):
     @PatternMessageHandler("/private( .*)?", authorized=True)
     def private(self, message, text):
@@ -36,8 +35,20 @@ class TestBotHandler:
         yield instance
 
     def test_count_commands(self, handler):
-        assert len(handler.commands) == 4, \
-            "Handler instance must has 3 commands"
+        assert len(handler.commands)-1 == 4, \
+            "Handler instance must has 3 commands + /version"
+
+    def test_version_command(self, handler):
+        assert not handler.bot.exec_command({"text": "/version", "chat":{"id": 0}, "from": {"id": 2}}), \
+            "version is unregistered, command return data for authorized"
+        assert not handler.bot.exec_command({"text": "/version", "chat":{"id": 0}, "from": {"id": 1122}}), \
+            "version is unregistered, command return data for authorized"
+
+        handler.version = '0.0.0'
+        assert handler.bot.exec_command({"text": "/version", "chat":{"id": 0}, "from": {"id": 2}}), \
+            "Authorized user hasn't access to private /version"
+        assert not handler.bot.exec_command({"text": "/version", "chat":{"id": 0}, "from": {"id": 1122}}), \
+            "Unauthorized user has access to private /version"
 
     def test_private_auth_user(self, handler):
         assert handler.bot.exec_command({"text": "/private", "from": {"id": 2}}), \
