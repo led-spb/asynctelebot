@@ -79,6 +79,14 @@ class BotRequestHandler:
                 self._commands.append(func)
         return self._commands
 
+    @PatternMessageHandler('/version', authorized=True)
+    def get_version(self, chat):
+        if hasattr(self, 'version'):
+            self.bot.send_message(to=chat['id'], message=str(getattr(self, 'version')))
+            return True
+        else:
+            return False
+
     def assign_to(self, bot):
         self.bot = bot
 
