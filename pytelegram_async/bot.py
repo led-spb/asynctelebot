@@ -135,6 +135,7 @@ class Bot(object):
                 message = callback['message']
                 message['from'] = callback['from']
                 message['text'] = callback['data']
+                message['is_callback'] = True
                 update.update({'message': message})
 
             if 'message' in update:
