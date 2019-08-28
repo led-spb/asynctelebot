@@ -241,11 +241,12 @@ class Bot(object):
         yield write(b"--%s--\r\n" % (boundary_bytes,))
         pass
 
-    def send_request(self, url, body=None, files=None, timeout=None, callback=None):
+    def send_request(self, url, body=None, files=None, callback=None):
         if files is None or len(files) == 0:
             request = HTTPRequest(
                 url, headers={"Content-Type": "application/json"},
-                method='POST', body=json.dumps(body)
+                method='POST', body=json.dumps(body),
+                request_timeout=self.params.get('timeout')
             )
         else:
             boundary = uuid4().hex
@@ -255,7 +256,8 @@ class Bot(object):
                 body_producer=partial(
                     self.multipart_producer,
                     boundary, body, files
-                )
+                ),
+                request_timeout=self.params.get('timeout')
             )
         return self._client.fetch(request, callback=callback or self._on_message_cb, raise_error=False)
 
