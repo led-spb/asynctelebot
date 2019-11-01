@@ -186,7 +186,7 @@ class Bot(object):
                 self.logger.error(result)
 
             self.loop_start()
-        except (HTTPError, ValueError):
+        except (HTTPError, ValueError, StandardError):
             self.logger.exception('Error while receive updates from server')
             self.loop_start(10)
             pass
@@ -196,6 +196,7 @@ class Bot(object):
             response.rethrow()
         except HTTPError:
             self.logger.exception("Error while sending message")
+            self.logger.error(response.body)
         pass
 
     def loop_start(self, delay=0):
