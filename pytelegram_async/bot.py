@@ -150,7 +150,7 @@ class Bot(object):
 
                     if "text" in message_type:
                         message_type = message["text"]
-                    else
+                    else:
                         message_type = next(iter(message_type), "unknown")
 
                     self.logger.info("message \"%s\" from %d/%s", message_type, user.get('id'), user.get('first_name'))
