@@ -147,9 +147,11 @@ class Bot(object):
                         set(message.keys())
                         & {"text", "audio", "document", "photo", "sticker", "video", "voice", "contact", "location",
                            "venue", "game"})
-                    message_type = message_type[0] if len(message_type) > 0 else "unknown"
-                    if message_type == "text":
+
+                    if "text" in message_type:
                         message_type = message["text"]
+                    else
+                        message_type = next(iter(message_type), "unknown")
 
                     self.logger.info("message \"%s\" from %d/%s", message_type, user.get('id'), user.get('first_name'))
                     try:
